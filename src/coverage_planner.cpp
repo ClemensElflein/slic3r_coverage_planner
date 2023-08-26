@@ -652,7 +652,7 @@ int main(int argc, char **argv)
     doPerimeterClockwise = paramNh.param("clockwise", false);
     ROS_INFO_STREAM("Perimeter Clockwise: " << doPerimeterClockwise);
 
-    useEquallySpacedPoints = paramNh.param("equally_spaced", false);
+    useEquallySpacedPoints = paramNh.param("equally_spaced", true);
     ROS_INFO_STREAM("build equally spaced points: " << useEquallySpacedPoints);
 
     if (visualize_plan)
