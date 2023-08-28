@@ -16,6 +16,7 @@ find_package(catkin REQUIRED COMPONENTS
         message_generation
         tf2
         tf2_geometry_msgs
+        dynamic_reconfigure
         )
 
 set(EP_SLIC3R "Slic3r")
@@ -118,6 +119,7 @@ generate_messages(
 #   cfg/DynReconf1.cfg
 #   cfg/DynReconf2.cfg
 # )
+generate_dynamic_reconfigure_options(cfg/coverage_planner.cfg)
 
 ###################################
 ## catkin specific configuration ##
@@ -133,7 +135,7 @@ catkin_package(
         #  LIBRARIES slic3r_coverage_planner
         #  CATKIN_DEPENDS geometry_msgs nav_msgs roscpp std_msgs
         #  DEPENDS system_lib
-        CATKIN_DEPENDS message_runtime
+        CATKIN_DEPENDS message_runtime dynamic_reconfigure
 )
 
 ###########
@@ -241,6 +243,7 @@ add_executable(slic3r_coverage_planner
         )
 add_dependencies(slic3r_coverage_planner ${catkin_EXPORTED_TARGETS} ${${PROJECT_NAME}_EXPORTED_TARGETS})
 add_dependencies(slic3r_coverage_planner ${EP_SLIC3R})
+add_dependencies(slic3r_coverage_planner ${PROJECT_NAME}_gencfg)
 
 ExternalProject_Get_property(${EP_SLIC3R} BINARY_DIR)
 target_link_libraries(slic3r_coverage_planner ${catkin_LIBRARIES}

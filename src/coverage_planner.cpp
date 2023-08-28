@@ -19,6 +19,8 @@
 #include "tf2_geometry_msgs/tf2_geometry_msgs.h"
 #include "ClipperUtils.hpp"
 #include "ExtrusionEntityCollection.hpp"
+#include <dynamic_reconfigure/server.h>
+#include "slic3r_coverage_planner/coverage_plannerConfig.h"
 
 bool visualize_plan;
 bool doPerimeterClockwise;
@@ -195,6 +197,8 @@ void traverse(std::vector<PerimeterGeneratorLoop> &contours, std::vector<Polygon
 
 bool planPath(slic3r_coverage_planner::PlanPathRequest &req, slic3r_coverage_planner::PlanPathResponse &res)
 {
+    ROS_INFO_STREAM("perimeter clockwise: " << doPerimeterClockwise);
+    ROS_INFO_STREAM("equally_spaced points: " << useEquallySpacedPoints);
 
     Slic3r::Polygon outline_poly;
     for (auto &pt : req.outline.points)
@@ -641,6 +645,13 @@ bool planPath(slic3r_coverage_planner::PlanPathRequest &req, slic3r_coverage_pla
     return true;
 }
 
+    void reconfigureCB(slic3r_coverage_planner::coverage_plannerConfig &c, uint32_t level)
+    {
+        visualize_plan = c.visualize_plan;
+        doPerimeterClockwise = c.doPerimeterClockwise;
+        useEquallySpacedPoints = c.equally_spaced_points;
+    }
+
 int main(int argc, char **argv)
 {
     ros::init(argc, argv, "slic3r_coverage_planner");
@@ -648,11 +659,11 @@ int main(int argc, char **argv)
     ros::NodeHandle n;
     ros::NodeHandle paramNh("~");
 
-    visualize_plan = paramNh.param("visualize_plan", true);
-    doPerimeterClockwise = paramNh.param("clockwise", false);
-    ROS_INFO_STREAM("Perimeter Clockwise: " << doPerimeterClockwise);
+    dynamic_reconfigure::Server<slic3r_coverage_planner::coverage_plannerConfig> srv;
+    dynamic_reconfigure::Server<slic3r_coverage_planner::coverage_plannerConfig>::CallbackType f = boost::bind(&reconfigureCB, _1, _2);
+    srv.setCallback(f);
 
-    useEquallySpacedPoints = paramNh.param("equally_spaced", true);
+    ROS_INFO_STREAM("Perimeter Clockwise: " << doPerimeterClockwise);
     ROS_INFO_STREAM("build equally spaced points: " << useEquallySpacedPoints);
 
     if (visualize_plan)
