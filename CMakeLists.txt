@@ -23,9 +23,10 @@ ExternalProject_Add(
         ${EP_SLIC3R}
 
         PREFIX ${EP_SLIC3R}
-        GIT_REPOSITORY https://github.com/ClemensElflein/Slic3r
-        GIT_TAG 026c1380e0ad12176dd2fc8cdf8f6f181deeb071
+        GIT_REPOSITORY https://github.com/HoverMower/Slic3r
+        #GIT_TAG 026c1380e0ad12176dd2fc8cdf8f6f181deeb071
         GIT_SHALLOW OFF
+
 
         BUILD_ALWAYS OFF
 
@@ -39,7 +40,7 @@ ExternalProject_Add(
 
 
 ## System dependencies are found with CMake's conventions
- find_package(Boost REQUIRED COMPONENTS system thread)
+# find_package(Boost REQUIRED COMPONENTS system thread)
 
 
 ## Uncomment this if the package has a setup.py. This macro ensures

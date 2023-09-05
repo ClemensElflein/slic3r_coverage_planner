@@ -23,6 +23,7 @@
 
 
 bool visualize_plan;
+bool doPerimeterClockwise;
 ros::Publisher marker_array_publisher;
 
 
@@ -410,6 +411,9 @@ bool planPath(slic3r_coverage_planner::PlanPathRequest &req, slic3r_coverage_pla
 
 
             auto equally_spaced_points = line.equally_spaced_points(scale_(0.1));
+            if (doPerimeterClockwise == true) {
+                std::reverse(equally_spaced_points.begin(), equally_spaced_points.end());
+            }
             if (equally_spaced_points.size() < 2) {
                 ROS_INFO("Skipping single dot");
                 continue;
@@ -462,6 +466,7 @@ bool planPath(slic3r_coverage_planner::PlanPathRequest &req, slic3r_coverage_pla
 
 
         auto equally_spaced_points = line.equally_spaced_points(scale_(0.1));
+
         if (equally_spaced_points.size() < 2) {
             ROS_INFO("Skipping single dot");
             continue;
@@ -524,6 +529,10 @@ bool planPath(slic3r_coverage_planner::PlanPathRequest &req, slic3r_coverage_pla
 
 
             auto equally_spaced_points = line.equally_spaced_points(scale_(0.1));
+            if (doPerimeterClockwise == true) {
+                std::reverse(equally_spaced_points.begin(), equally_spaced_points.end());
+            }
+            
             if (equally_spaced_points.size() < 2) {
                 ROS_INFO("Skipping single dot");
                 continue;
@@ -578,6 +587,8 @@ int main(int argc, char **argv) {
     ros::NodeHandle paramNh("~");
 
     visualize_plan = paramNh.param("visualize_plan", true);
+    doPerimeterClockwise = paramNh.param("clockwise", false);
+    ROS_INFO_STREAM("Perimeter Clockwise: " << doPerimeterClockwise);
 
     if (visualize_plan) {
         marker_array_publisher = n.advertise<visualization_msgs::MarkerArray>(
