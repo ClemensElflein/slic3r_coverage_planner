@@ -175,10 +175,14 @@ void createLineMarkers(std::vector<Polygons> outline_groups,std::vector<Polygons
 void traverse(std::vector<PerimeterGeneratorLoop> &contours, std::vector<Polygons> &line_groups) {
     for (auto &contour: contours) {
         if (contour.children.empty()) {
-            line_groups.push_back(Polygons());
+            // Grouping together multiple polygons can lead to issues since the segment 
+            // from the last point of the n polygon to the first point of the n+1 polygon might go through not authorized areas or obstacles
+            //line_groups.push_back(Polygons());
+
         } else {
             traverse(contour.children, line_groups);
         }
+        line_groups.push_back(Polygons());
         line_groups.back().push_back(contour.polygon);
     }
 }
