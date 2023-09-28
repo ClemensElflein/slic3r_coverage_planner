@@ -16,6 +16,7 @@ find_package(catkin REQUIRED COMPONENTS
         message_generation
         tf2
         tf2_geometry_msgs
+        dynamic_reconfigure
         )
 
 set(EP_SLIC3R "Slic3r")
@@ -23,9 +24,10 @@ ExternalProject_Add(
         ${EP_SLIC3R}
 
         PREFIX ${EP_SLIC3R}
-        GIT_REPOSITORY https://github.com/ClemensElflein/Slic3r
-        GIT_TAG 026c1380e0ad12176dd2fc8cdf8f6f181deeb071
+        GIT_REPOSITORY https://github.com/HoverMower/Slic3r
+        #GIT_TAG 026c1380e0ad12176dd2fc8cdf8f6f181deeb071
         GIT_SHALLOW OFF
+
 
         BUILD_ALWAYS OFF
 
@@ -39,7 +41,7 @@ ExternalProject_Add(
 
 
 ## System dependencies are found with CMake's conventions
- find_package(Boost REQUIRED COMPONENTS system thread)
+# find_package(Boost REQUIRED COMPONENTS system thread)
 
 
 ## Uncomment this if the package has a setup.py. This macro ensures
@@ -117,6 +119,7 @@ generate_messages(
 #   cfg/DynReconf1.cfg
 #   cfg/DynReconf2.cfg
 # )
+generate_dynamic_reconfigure_options(cfg/coverage_planner.cfg)
 
 ###################################
 ## catkin specific configuration ##
@@ -132,7 +135,7 @@ catkin_package(
         #  LIBRARIES slic3r_coverage_planner
         #  CATKIN_DEPENDS geometry_msgs nav_msgs roscpp std_msgs
         #  DEPENDS system_lib
-        CATKIN_DEPENDS message_runtime
+        CATKIN_DEPENDS message_runtime dynamic_reconfigure
 )
 
 ###########
@@ -240,6 +243,7 @@ add_executable(slic3r_coverage_planner
         )
 add_dependencies(slic3r_coverage_planner ${catkin_EXPORTED_TARGETS} ${${PROJECT_NAME}_EXPORTED_TARGETS})
 add_dependencies(slic3r_coverage_planner ${EP_SLIC3R})
+add_dependencies(slic3r_coverage_planner ${PROJECT_NAME}_gencfg)
 
 ExternalProject_Get_property(${EP_SLIC3R} BINARY_DIR)
 target_link_libraries(slic3r_coverage_planner ${catkin_LIBRARIES}

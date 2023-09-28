@@ -9,7 +9,6 @@
 #include "Fill/FillRectilinear.hpp"
 #include "Fill/FillConcentric.hpp"
 
-
 #include "slic3r_coverage_planner/PlanPath.h"
 #include "visualization_msgs/MarkerArray.h"
 #include "Surface.hpp"
@@ -20,14 +19,16 @@
 #include "tf2_geometry_msgs/tf2_geometry_msgs.h"
 #include "ClipperUtils.hpp"
 #include "ExtrusionEntityCollection.hpp"
-
+#include <dynamic_reconfigure/server.h>
+#include "slic3r_coverage_planner/coverage_plannerConfig.h"
 
 bool visualize_plan;
+bool doPerimeterClockwise;
+bool useEquallySpacedPoints;
 ros::Publisher marker_array_publisher;
 
-
-
-void createLineMarkers(std::vector<Polygons> outline_groups,std::vector<Polygons> obstacle_groups, Polylines &fill_lines, visualization_msgs::MarkerArray &markerArray) {
+void createLineMarkers(std::vector<Polygons> outline_groups, std::vector<Polygons> obstacle_groups, Polylines &fill_lines, visualization_msgs::MarkerArray &markerArray)
+{
 
     std::vector<std_msgs::ColorRGBA> colors;
 
@@ -90,8 +91,10 @@ void createLineMarkers(std::vector<Polygons> outline_groups,std::vector<Polygons
 
     uint32_t cidx = 0;
 
-    for(auto &group: outline_groups) {
-        for (auto &line: group) {
+    for (auto &group : outline_groups)
+    {
+        for (auto &line : group)
+        {
             {
                 visualization_msgs::Marker marker;
 
@@ -104,7 +107,8 @@ void createLineMarkers(std::vector<Polygons> outline_groups,std::vector<Polygons
                 marker.color = colors[cidx];
                 marker.pose.orientation.w = 1;
                 marker.scale.x = marker.scale.y = marker.scale.z = 0.02;
-                for (auto &pt: line.points) {
+                for (auto &pt : line.points)
+                {
                     geometry_msgs::Point vpt;
                     vpt.x = unscale(pt.x);
                     vpt.y = unscale(pt.y);
@@ -117,7 +121,8 @@ void createLineMarkers(std::vector<Polygons> outline_groups,std::vector<Polygons
         cidx = (cidx + 1) % colors.size();
     }
 
-    for (auto &line: fill_lines) {
+    for (auto &line : fill_lines)
+    {
         {
             visualization_msgs::Marker marker;
 
@@ -130,7 +135,8 @@ void createLineMarkers(std::vector<Polygons> outline_groups,std::vector<Polygons
             marker.color = colors[cidx];
             marker.pose.orientation.w = 1;
             marker.scale.x = marker.scale.y = marker.scale.z = 0.02;
-            for (auto &pt: line.points) {
+            for (auto &pt : line.points)
+            {
                 geometry_msgs::Point vpt;
                 vpt.x = unscale(pt.x);
                 vpt.y = unscale(pt.y);
@@ -142,51 +148,61 @@ void createLineMarkers(std::vector<Polygons> outline_groups,std::vector<Polygons
             cidx = (cidx + 1) % colors.size();
         }
     }
-        for(auto &group: obstacle_groups) {
-            for (auto &line: group) {
+    for (auto &group : obstacle_groups)
+    {
+        for (auto &line : group)
+        {
+            {
+                visualization_msgs::Marker marker;
+
+                marker.header.frame_id = "map";
+                marker.ns = "mower_map_service_lines";
+                marker.id = static_cast<int>(markerArray.markers.size());
+                marker.frame_locked = true;
+                marker.action = visualization_msgs::Marker::ADD;
+                marker.type = visualization_msgs::Marker::LINE_STRIP;
+                marker.color = colors[cidx];
+                marker.pose.orientation.w = 1;
+                marker.scale.x = marker.scale.y = marker.scale.z = 0.02;
+                for (auto &pt : line.points)
                 {
-                    visualization_msgs::Marker marker;
-
-                    marker.header.frame_id = "map";
-                    marker.ns = "mower_map_service_lines";
-                    marker.id = static_cast<int>(markerArray.markers.size());
-                    marker.frame_locked = true;
-                    marker.action = visualization_msgs::Marker::ADD;
-                    marker.type = visualization_msgs::Marker::LINE_STRIP;
-                    marker.color = colors[cidx];
-                    marker.pose.orientation.w = 1;
-                    marker.scale.x = marker.scale.y = marker.scale.z = 0.02;
-                    for (auto &pt: line.points) {
-                        geometry_msgs::Point vpt;
-                        vpt.x = unscale(pt.x);
-                        vpt.y = unscale(pt.y);
-                        marker.points.push_back(vpt);
-                    }
-
-                    markerArray.markers.push_back(marker);
-
+                    geometry_msgs::Point vpt;
+                    vpt.x = unscale(pt.x);
+                    vpt.y = unscale(pt.y);
+                    marker.points.push_back(vpt);
                 }
-            }
-            cidx = (cidx + 1) % colors.size();
 
+                markerArray.markers.push_back(marker);
+            }
         }
+        cidx = (cidx + 1) % colors.size();
+    }
 }
 
-void traverse(std::vector<PerimeterGeneratorLoop> &contours, std::vector<Polygons> &line_groups) {
-    for (auto &contour: contours) {
-        if (contour.children.empty()) {
+void traverse(std::vector<PerimeterGeneratorLoop> &contours, std::vector<Polygons> &line_groups)
+{
+    for (auto &contour : contours)
+    {
+        if (contour.children.empty())
+        {
             line_groups.push_back(Polygons());
-        } else {
+        }
+        else
+        {
             traverse(contour.children, line_groups);
         }
         line_groups.back().push_back(contour.polygon);
     }
 }
 
-bool planPath(slic3r_coverage_planner::PlanPathRequest &req, slic3r_coverage_planner::PlanPathResponse &res) {
+bool planPath(slic3r_coverage_planner::PlanPathRequest &req, slic3r_coverage_planner::PlanPathResponse &res)
+{
+    ROS_INFO_STREAM("perimeter clockwise: " << doPerimeterClockwise);
+    ROS_INFO_STREAM("equally_spaced points: " << useEquallySpacedPoints);
 
     Slic3r::Polygon outline_poly;
-    for (auto &pt: req.outline.points) {
+    for (auto &pt : req.outline.points)
+    {
         outline_poly.points.push_back(Point(scale_(pt.x), scale_(pt.y)));
     }
 
@@ -195,9 +211,11 @@ bool planPath(slic3r_coverage_planner::PlanPathRequest &req, slic3r_coverage_pla
     // This ExPolygon contains our input area with holes.
     Slic3r::ExPolygon expoly(outline_poly);
 
-    for (auto &hole: req.holes) {
+    for (auto &hole : req.holes)
+    {
         Slic3r::Polygon hole_poly;
-        for (auto &pt: hole.points) {
+        for (auto &pt : hole.points)
+        {
             hole_poly.points.push_back(Point(scale_(pt.x), scale_(pt.y)));
         }
         hole_poly.make_clockwise();
@@ -205,17 +223,10 @@ bool planPath(slic3r_coverage_planner::PlanPathRequest &req, slic3r_coverage_pla
         expoly.holes.push_back(hole_poly);
     }
 
-
-
-
-
     // Results are stored here
     std::vector<Polygons> area_outlines;
     Polylines fill_lines;
     std::vector<Polygons> obstacle_outlines;
-
-
-
 
     coord_t distance = scale_(req.distance);
     coord_t outer_distance = scale_(req.outer_offset);
@@ -225,66 +236,78 @@ bool planPath(slic3r_coverage_planner::PlanPathRequest &req, slic3r_coverage_pla
 
     ROS_INFO_STREAM("generating " << loops << " outlines");
 
-    const int loop_number = loops - 1;  // 0-indexed loops
+    const int loop_number = loops - 1; // 0-indexed loops
     const int inner_loop_number = loop_number - req.outline_overlap_count;
-
 
     Polygons gaps;
 
     Polygons last = expoly;
     Polygons inner = last;
-    if (loop_number >= 0) {  // no loops = -1
+    if (loop_number >= 0)
+    { // no loops = -1
 
-        std::vector<PerimeterGeneratorLoops> contours(loop_number + 1);    // depth => loops
-        std::vector<PerimeterGeneratorLoops> holes(loop_number + 1);       // depth => loops
+        std::vector<PerimeterGeneratorLoops> contours(loop_number + 1); // depth => loops
+        std::vector<PerimeterGeneratorLoops> holes(loop_number + 1);    // depth => loops
 
-        for (int i = 0; i <= loop_number; ++i) {  // outer loop is 0
+        for (int i = 0; i <= loop_number; ++i)
+        { // outer loop is 0
             Polygons offsets;
 
-            if (i == 0) {
+            if (i == 0)
+            {
                 offsets = offset(
-                        last,
-                        -outer_distance
-                );
-            } else {
+                    last,
+                    -outer_distance);
+            }
+            else
+            {
                 offsets = offset(
-                        last,
-                        -distance
-                );
+                    last,
+                    -distance);
             }
 
-            if (offsets.empty()) break;
-
+            if (offsets.empty())
+                break;
 
             last = offsets;
-            if(i <= inner_loop_number) {
+            if (i <= inner_loop_number)
+            {
                 inner = last;
             }
 
-            for (Polygons::const_iterator polygon = offsets.begin(); polygon != offsets.end(); ++polygon) {
+            for (Polygons::const_iterator polygon = offsets.begin(); polygon != offsets.end(); ++polygon)
+            {
                 PerimeterGeneratorLoop loop(*polygon, i);
                 loop.is_contour = polygon->is_counter_clockwise();
-                if (loop.is_contour) {
+                if (loop.is_contour)
+                {
                     contours[i].push_back(loop);
-                } else {
+                }
+                else
+                {
                     holes[i].push_back(loop);
                 }
             }
         }
 
         // nest loops: holes first
-        for (int d = 0; d <= loop_number; ++d) {
+        for (int d = 0; d <= loop_number; ++d)
+        {
             PerimeterGeneratorLoops &holes_d = holes[d];
 
             // loop through all holes having depth == d
-            for (int i = 0; i < (int) holes_d.size(); ++i) {
+            for (int i = 0; i < (int)holes_d.size(); ++i)
+            {
                 const PerimeterGeneratorLoop &loop = holes_d[i];
 
                 // find the hole loop that contains this one, if any
-                for (int t = d + 1; t <= loop_number; ++t) {
-                    for (int j = 0; j < (int) holes[t].size(); ++j) {
+                for (int t = d + 1; t <= loop_number; ++t)
+                {
+                    for (int j = 0; j < (int)holes[t].size(); ++j)
+                    {
                         PerimeterGeneratorLoop &candidate_parent = holes[t][j];
-                        if (candidate_parent.polygon.contains(loop.polygon.first_point())) {
+                        if (candidate_parent.polygon.contains(loop.polygon.first_point()))
+                        {
                             candidate_parent.children.push_back(loop);
                             holes_d.erase(holes_d.begin() + i);
                             --i;
@@ -293,23 +316,28 @@ bool planPath(slic3r_coverage_planner::PlanPathRequest &req, slic3r_coverage_pla
                     }
                 }
 
-                NEXT_LOOP:;
+            NEXT_LOOP:;
             }
         }
 
         // nest contour loops
-        for (int d = loop_number; d >= 1; --d) {
+        for (int d = loop_number; d >= 1; --d)
+        {
             PerimeterGeneratorLoops &contours_d = contours[d];
 
             // loop through all contours having depth == d
-            for (int i = 0; i < (int) contours_d.size(); ++i) {
+            for (int i = 0; i < (int)contours_d.size(); ++i)
+            {
                 const PerimeterGeneratorLoop &loop = contours_d[i];
 
                 // find the contour loop that contains it
-                for (int t = d - 1; t >= 0; --t) {
-                    for (size_t j = 0; j < contours[t].size(); ++j) {
+                for (int t = d - 1; t >= 0; --t)
+                {
+                    for (size_t j = 0; j < contours[t].size(); ++j)
+                    {
                         PerimeterGeneratorLoop &candidate_parent = contours[t][j];
-                        if (candidate_parent.polygon.contains(loop.polygon.first_point())) {
+                        if (candidate_parent.polygon.contains(loop.polygon.first_point()))
+                        {
                             candidate_parent.children.push_back(loop);
                             contours_d.erase(contours_d.begin() + i);
                             --i;
@@ -318,36 +346,36 @@ bool planPath(slic3r_coverage_planner::PlanPathRequest &req, slic3r_coverage_pla
                     }
                 }
 
-                NEXT_CONTOUR:;
+            NEXT_CONTOUR:;
             }
         }
 
         traverse(contours[0], area_outlines);
-        for(auto &hole:holes) {
+        for (auto &hole : holes)
+        {
             traverse(hole, obstacle_outlines);
         }
 
-        for(auto &obstacle_group : obstacle_outlines) {
+        for (auto &obstacle_group : obstacle_outlines)
+        {
             std::reverse(obstacle_group.begin(), obstacle_group.end());
         }
-
     }
-
-
-
 
     ExPolygons expp = union_ex(inner);
 
-
     // Go through the innermost poly and create the fill path using a Fill object
-    for (auto &poly: expp) {
+    for (auto &poly : expp)
+    {
         Slic3r::Surface surface(Slic3r::SurfaceType::stBottom, poly);
 
-
         Slic3r::Fill *fill;
-        if (req.fill_type == slic3r_coverage_planner::PlanPathRequest::FILL_LINEAR) {
+        if (req.fill_type == slic3r_coverage_planner::PlanPathRequest::FILL_LINEAR)
+        {
             fill = new Slic3r::FillRectilinear();
-        } else {
+        }
+        else
+        {
             fill = new Slic3r::FillConcentric();
         }
         fill->link_max_length = scale_(1.0);
@@ -369,15 +397,14 @@ bool planPath(slic3r_coverage_planner::PlanPathRequest &req, slic3r_coverage_pla
         fill = nullptr;
 
         ROS_INFO_STREAM("Fill Complete. Polyline count: " << lines.size());
-        for (int i = 0; i < lines.size(); i++) {
+        for (int i = 0; i < lines.size(); i++)
+        {
             ROS_INFO_STREAM("Polyline " << i << " has point count: " << lines[i].points.size());
         }
     }
 
-
-
-    if (visualize_plan) {
-
+    if (visualize_plan)
+    {
 
         visualization_msgs::MarkerArray arr;
         createLineMarkers(area_outlines, obstacle_outlines, fill_lines, arr);
@@ -389,36 +416,55 @@ bool planPath(slic3r_coverage_planner::PlanPathRequest &req, slic3r_coverage_pla
     header.frame_id = "map";
     header.seq = 0;
 
-    for(auto &group:area_outlines) {
+    for (auto &group : area_outlines)
+    {
         slic3r_coverage_planner::Path path;
         path.is_outline = true;
         path.path.header = header;
         int split_index = 0;
-        for (int i = 0; i < group.size(); i++) {
+        for (int i = 0; i < group.size(); i++)
+        {
             auto &poly = group[i];
 
             Polyline line;
-            if(split_index < poly.points.size()) {
+            if (split_index < poly.points.size())
+            {
                 line = poly.split_at_index(split_index);
-            } else {
+            }
+            else
+            {
                 line = poly.split_at_first_point();
                 split_index = 0;
             }
-            split_index+=2;
+            split_index += 2;
             line.remove_duplicate_points();
 
+            Points equally_spaced_points;
+            if (useEquallySpacedPoints == true)
+            {
+                equally_spaced_points = line.equally_spaced_points(scale_(0.1));
+            }
+            else
+            {
+                equally_spaced_points = line.points;
+            }
 
-
-            auto equally_spaced_points = line.equally_spaced_points(scale_(0.1));
-            if (equally_spaced_points.size() < 2) {
+            if (doPerimeterClockwise == true)
+            {
+                std::reverse(equally_spaced_points.begin(), equally_spaced_points.end());
+            }
+            if (equally_spaced_points.size() < 2)
+            {
                 ROS_INFO("Skipping single dot");
                 continue;
             }
             ROS_INFO_STREAM("Got " << equally_spaced_points.size() << " points");
 
             Point *lastPoint = nullptr;
-            for (auto &pt: equally_spaced_points) {
-                if (lastPoint == nullptr) {
+            for (auto &pt : equally_spaced_points)
+            {
+                if (lastPoint == nullptr)
+                {
                     lastPoint = &pt;
                     continue;
                 }
@@ -447,12 +493,12 @@ bool planPath(slic3r_coverage_planner::PlanPathRequest &req, slic3r_coverage_pla
             pose.pose.position.y = unscale(lastPoint->y);
             pose.pose.position.z = 0;
             path.path.poses.push_back(pose);
-
         }
         res.paths.push_back(path);
     }
 
-    for (int i = 0; i < fill_lines.size(); i++) {
+    for (int i = 0; i < fill_lines.size(); i++)
+    {
         auto &line = fill_lines[i];
         slic3r_coverage_planner::Path path;
         path.is_outline = false;
@@ -460,17 +506,28 @@ bool planPath(slic3r_coverage_planner::PlanPathRequest &req, slic3r_coverage_pla
 
         line.remove_duplicate_points();
 
+        Points equally_spaced_points;
+        if (useEquallySpacedPoints == true)
+        {
+            equally_spaced_points = line.equally_spaced_points(scale_(0.1));
+        }
+        else
+        {
+            equally_spaced_points = line.points;
+        }
 
-        auto equally_spaced_points = line.equally_spaced_points(scale_(0.1));
-        if (equally_spaced_points.size() < 2) {
+        if (equally_spaced_points.size() < 2)
+        {
             ROS_INFO("Skipping single dot");
             continue;
         }
         ROS_INFO_STREAM("Got " << equally_spaced_points.size() << " points");
 
         Point *lastPoint = nullptr;
-        for (auto &pt: equally_spaced_points) {
-            if (lastPoint == nullptr) {
+        for (auto &pt : equally_spaced_points)
+        {
+            if (lastPoint == nullptr)
+            {
                 lastPoint = &pt;
                 continue;
             }
@@ -503,36 +560,56 @@ bool planPath(slic3r_coverage_planner::PlanPathRequest &req, slic3r_coverage_pla
         res.paths.push_back(path);
     }
 
-    for(auto &group:obstacle_outlines) {
+    for (auto &group : obstacle_outlines)
+    {
         slic3r_coverage_planner::Path path;
         path.is_outline = true;
         path.path.header = header;
         int split_index = 0;
-        for (int i = 0; i < group.size(); i++) {
+        for (int i = 0; i < group.size(); i++)
+        {
             auto &poly = group[i];
 
             Polyline line;
-            if(split_index < poly.points.size()) {
+            if (split_index < poly.points.size())
+            {
                 line = poly.split_at_index(split_index);
-            } else {
+            }
+            else
+            {
                 line = poly.split_at_first_point();
                 split_index = 0;
             }
-            split_index+=2;
+            split_index += 2;
             line.remove_duplicate_points();
 
+            Points equally_spaced_points;
+            if (useEquallySpacedPoints == true)
+            {
+                equally_spaced_points = line.equally_spaced_points(scale_(0.1));
+            }
+            else
+            {
+                equally_spaced_points = line.points;
+            }
 
+            if (doPerimeterClockwise == true)
+            {
+                std::reverse(equally_spaced_points.begin(), equally_spaced_points.end());
+            }
 
-            auto equally_spaced_points = line.equally_spaced_points(scale_(0.1));
-            if (equally_spaced_points.size() < 2) {
+            if (equally_spaced_points.size() < 2)
+            {
                 ROS_INFO("Skipping single dot");
                 continue;
             }
             ROS_INFO_STREAM("Got " << equally_spaced_points.size() << " points");
 
             Point *lastPoint = nullptr;
-            for (auto &pt: equally_spaced_points) {
-                if (lastPoint == nullptr) {
+            for (auto &pt : equally_spaced_points)
+            {
+                if (lastPoint == nullptr)
+                {
                     lastPoint = &pt;
                     continue;
                 }
@@ -561,27 +638,38 @@ bool planPath(slic3r_coverage_planner::PlanPathRequest &req, slic3r_coverage_pla
             pose.pose.position.y = unscale(lastPoint->y);
             pose.pose.position.z = 0;
             path.path.poses.push_back(pose);
-
         }
         res.paths.push_back(path);
     }
 
-
     return true;
 }
 
+    void reconfigureCB(slic3r_coverage_planner::coverage_plannerConfig &c, uint32_t level)
+    {
+        visualize_plan = c.visualize_plan;
+        doPerimeterClockwise = c.doPerimeterClockwise;
+        useEquallySpacedPoints = c.equally_spaced_points;
+    }
 
-int main(int argc, char **argv) {
+int main(int argc, char **argv)
+{
     ros::init(argc, argv, "slic3r_coverage_planner");
 
     ros::NodeHandle n;
     ros::NodeHandle paramNh("~");
 
-    visualize_plan = paramNh.param("visualize_plan", true);
+    dynamic_reconfigure::Server<slic3r_coverage_planner::coverage_plannerConfig> srv;
+    dynamic_reconfigure::Server<slic3r_coverage_planner::coverage_plannerConfig>::CallbackType f = boost::bind(&reconfigureCB, _1, _2);
+    srv.setCallback(f);
 
-    if (visualize_plan) {
+    ROS_INFO_STREAM("Perimeter Clockwise: " << doPerimeterClockwise);
+    ROS_INFO_STREAM("build equally spaced points: " << useEquallySpacedPoints);
+
+    if (visualize_plan)
+    {
         marker_array_publisher = n.advertise<visualization_msgs::MarkerArray>(
-                "slic3r_coverage_planner/path_marker_array", 100, true);
+            "slic3r_coverage_planner/path_marker_array", 100, true);
     }
 
     ros::ServiceServer plan_path_srv = n.advertiseService("slic3r_coverage_planner/plan_path", planPath);
