@@ -217,23 +217,26 @@ slic3r_coverage_planner::Path determinePathForOutline(std_msgs::Header &header, 
     path.path.header = header;
 
     for (int i = 0; i < group.size(); i++) {
-        auto &poly = group[i];
+        auto points = group[i].equally_spaced_points(scale_(0.1));
+        if (points.size() < 2) {
+            ROS_INFO("Skipping single dot");
+            continue;
+        }
+        ROS_INFO_STREAM("Got " << points.size() << " points");
 
-        // Find an appropriate point to split, this should be close to the last split point,
-        // so that we don't need to traverse a lot.
-        Polyline line;
         // Cannot use i==0 here, because we might skip a path later ("Skipping single dot")
-        if (path.path.poses.empty()) {
-            // innermost group, split wherever
-            line = poly.split_at_first_point();
-        } else {
+        if (!path.path.poses.empty()) {
+            // Find a good transition point between the loops.
+            // It should be close to the last split point, so that we don't need to traverse a lot.
+
             // Get last point of last group. this is the next inner poly from this point of view
             const auto &last_pose = path.path.poses.back();
-            // Find the closest point in the current poly and split there
+
+            // Find the closest point in the current poly.
             double min_distance = INFINITY;
-            int min_split_index = 0;
-            for (int split_index = 0; split_index < poly.points.size(); ++split_index) {
-                const auto &pt = poly.points[split_index];
+            int closest_idx = 0;
+            for (int idx = 0; idx < points.size(); ++idx) {
+                const auto &pt = points[idx];
                 const auto pt_x = unscale(pt.x);
                 const auto pt_y = unscale(pt.y);
                 double distance = sqrt((pt_x - last_pose.pose.position.x) * (pt_x - last_pose.pose.position.x) +
@@ -241,16 +244,15 @@ slic3r_coverage_planner::Path determinePathForOutline(std_msgs::Header &header, 
 
                 if (distance < min_distance) {
                     min_distance = distance;
-                    min_split_index = split_index;
+                    closest_idx = idx;
                 }
             }
 
             // In order to smooth the transition we skip some points (think spiral movement of the mower).
             // Check, that the skip did not break the path (cross the outer poly during transition).
             // If it's fine, use the smoothed path, otherwise use the shortest point to split.
-            int smooth_split_index = (min_split_index + 2) % poly.points.size();
+            int smooth_transition_idx = (closest_idx + 3) % points.size();
 
-            line = poly.split_at_index(smooth_split_index);
             const Polygon *next_outer_poly;
             if (i < group.size() - 1) {
                 next_outer_poly = &group[i + 1];
@@ -258,26 +260,21 @@ slic3r_coverage_planner::Path determinePathForOutline(std_msgs::Header &header, 
                 // we are in the outermost line, use outline for collision check
                 next_outer_poly = &outline_poly;
             }
-            Line connection(line.first_point(),
+            Line connection(points[smooth_transition_idx],
                             Point(scale_(last_pose.pose.position.x), scale_(last_pose.pose.position.y)));
             Point intersection_pt{};
             if (next_outer_poly->intersection(connection, &intersection_pt)) {
-                // intersection, we need to split at closest point
-                line = poly.split_at_index(min_split_index);
+                // intersection, we need to transition at closest point
+                smooth_transition_idx = closest_idx;
+            }
+
+            if (smooth_transition_idx > 0) {
+                std::rotate(points.begin(), points.begin() + smooth_transition_idx, points.end());
             }
         }
-        line.remove_duplicate_points();
-
-
-        auto equally_spaced_points = line.equally_spaced_points(scale_(0.1));
-        if (equally_spaced_points.size() < 2) {
-            ROS_INFO("Skipping single dot");
-            continue;
-        }
-        ROS_INFO_STREAM("Got " << equally_spaced_points.size() << " points");
 
         Point *lastPoint = nullptr;
-        for (auto &pt: equally_spaced_points) {
+        for (auto &pt: points) {
             if (lastPoint == nullptr) {
                 lastPoint = &pt;
                 continue;
