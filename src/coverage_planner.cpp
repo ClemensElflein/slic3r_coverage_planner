@@ -216,6 +216,8 @@ slic3r_coverage_planner::Path determinePathForOutline(std_msgs::Header &header, 
     path.is_outline = true;
     path.path.header = header;
 
+    Point lastPoint;
+    bool is_first_point = true;
     for (int i = 0; i < group.size(); i++) {
         auto points = group[i].equally_spaced_points(scale_(0.1));
         if (points.size() < 2) {
@@ -224,24 +226,21 @@ slic3r_coverage_planner::Path determinePathForOutline(std_msgs::Header &header, 
         }
         ROS_INFO_STREAM("Got " << points.size() << " points");
 
-        // Cannot use i==0 here, because we might skip a path later ("Skipping single dot")
-        if (!path.path.poses.empty()) {
+        if (!is_first_point) {
             // Find a good transition point between the loops.
             // It should be close to the last split point, so that we don't need to traverse a lot.
 
-            // Get last point of last group. this is the next inner poly from this point of view
-            const auto &last_pose = path.path.poses.back();
-
-            // Find the closest point in the current poly.
+            // Find the point in the current poly which is closest to the last point of the last group
+            // (which is the next inner poly from this point of view).
+            const auto last_x = unscale(lastPoint.x);
+            const auto last_y = unscale(lastPoint.y);
             double min_distance = INFINITY;
             int closest_idx = 0;
             for (int idx = 0; idx < points.size(); ++idx) {
                 const auto &pt = points[idx];
                 const auto pt_x = unscale(pt.x);
                 const auto pt_y = unscale(pt.y);
-                double distance = sqrt((pt_x - last_pose.pose.position.x) * (pt_x - last_pose.pose.position.x) +
-                                        (pt_y - last_pose.pose.position.y) * (pt_y - last_pose.pose.position.y));
-
+                double distance = sqrt((pt_x - last_x) * (pt_x - last_x) + (pt_y - last_y) * (pt_y - last_y));
                 if (distance < min_distance) {
                     min_distance = distance;
                     closest_idx = idx;
@@ -260,8 +259,7 @@ slic3r_coverage_planner::Path determinePathForOutline(std_msgs::Header &header, 
                 // we are in the outermost line, use outline for collision check
                 next_outer_poly = &outline_poly;
             }
-            Line connection(points[smooth_transition_idx],
-                            Point(scale_(last_pose.pose.position.x), scale_(last_pose.pose.position.y)));
+            Line connection(points[smooth_transition_idx], lastPoint);
             Point intersection_pt{};
             if (next_outer_poly->intersection(connection, &intersection_pt)) {
                 // intersection, we need to transition at closest point
@@ -273,17 +271,17 @@ slic3r_coverage_planner::Path determinePathForOutline(std_msgs::Header &header, 
             }
         }
 
-        Point *lastPoint = nullptr;
         for (auto &pt: points) {
-            if (lastPoint == nullptr) {
-                lastPoint = &pt;
+            if (is_first_point) {
+                lastPoint = pt;
+                is_first_point = false;
                 continue;
             }
 
             // calculate pose for "lastPoint" pointing to current point
 
             // Direction for obstacle needs to be inversed compared to area outline, because we will reverse the point order later.
-            auto dir = isObstacle ? *lastPoint - pt : pt - *lastPoint;
+            auto dir = isObstacle ? lastPoint - pt : pt - lastPoint;
 
             double orientation = atan2(dir.y, dir.x);
             tf2::Quaternion q(0.0, 0.0, orientation);
@@ -291,26 +289,27 @@ slic3r_coverage_planner::Path determinePathForOutline(std_msgs::Header &header, 
             geometry_msgs::PoseStamped pose;
             pose.header = header;
             pose.pose.orientation = tf2::toMsg(q);
-            pose.pose.position.x = unscale(lastPoint->x);
-            pose.pose.position.y = unscale(lastPoint->y);
+            pose.pose.position.x = unscale(lastPoint.x);
+            pose.pose.position.y = unscale(lastPoint.y);
             pose.pose.position.z = 0;
             path.path.poses.push_back(pose);
-            lastPoint = &pt;
-        }
-
-        // finally, we add the final pose for "lastPoint" with the same orientation as the last poe
-        geometry_msgs::PoseStamped pose;
-        pose.header = header;
-        pose.pose.orientation = path.path.poses.back().pose.orientation;
-        pose.pose.position.x = unscale(lastPoint->x);
-        pose.pose.position.y = unscale(lastPoint->y);
-        pose.pose.position.z = 0;
-        path.path.poses.push_back(pose);
-
-        if (areaLastPoint != nullptr) {
-            *areaLastPoint = *lastPoint;
+            lastPoint = pt;
         }
     }
+
+    // finally, we add the final pose for "lastPoint" with the same orientation as the last pose
+    geometry_msgs::PoseStamped pose;
+    pose.header = header;
+    pose.pose.orientation = path.path.poses.back().pose.orientation;
+    pose.pose.position.x = unscale(lastPoint.x);
+    pose.pose.position.y = unscale(lastPoint.y);
+    pose.pose.position.z = 0;
+    path.path.poses.push_back(pose);
+
+    if (areaLastPoint != nullptr) {
+        *areaLastPoint = lastPoint;
+    }
+
     return path;
 }
 
@@ -604,7 +603,7 @@ bool planPath(slic3r_coverage_planner::PlanPathRequest &req, slic3r_coverage_pla
             lastPoint = &pt;
         }
 
-        // finally, we add the final pose for "lastPoint" with the same orientation as the last poe
+        // finally, we add the final pose for "lastPoint" with the same orientation as the last pose
         geometry_msgs::PoseStamped pose;
         pose.header = header;
         pose.pose.orientation = path.path.poses.back().pose.orientation;
