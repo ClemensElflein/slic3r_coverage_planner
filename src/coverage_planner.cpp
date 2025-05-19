@@ -318,6 +318,66 @@ slic3r_coverage_planner::Path determinePathForOutline(std_msgs::Header &header, 
     return path;
 }
 
+// New function to optimize perimeter nesting
+void optimizePerimeterNesting(std::vector<PerimeterGeneratorLoops>& contours, std::vector<PerimeterGeneratorLoops>& holes) {
+    // Sort contours and holes by area (largest first) to improve nesting efficiency
+    auto sortByArea = [](const PerimeterGeneratorLoop& a, const PerimeterGeneratorLoop& b) {
+        return a.polygon.area() > b.polygon.area();
+    };
+    for (auto& contour_group : contours) {
+        std::sort(contour_group.begin(), contour_group.end(), sortByArea);
+    }
+    for (auto& hole_group : holes) {
+        std::sort(hole_group.begin(), hole_group.end(), sortByArea);
+    }
+
+    // Re-nest holes: for each hole, find the smallest containing contour
+    for (int d = 0; d < holes.size(); ++d) {
+        auto& holes_d = holes[d];
+        for (int i = 0; i < holes_d.size(); ++i) {
+            const auto& hole = holes_d[i];
+            bool nested = false;
+            for (int t = 0; t < contours.size(); ++t) {
+                for (auto& contour : contours[t]) {
+                    if (contour.polygon.contains(hole.polygon.first_point())) {
+                        contour.children.push_back(hole);
+                        nested = true;
+                        break;
+                    }
+                }
+                if (nested) break;
+            }
+            if (nested) {
+                holes_d.erase(holes_d.begin() + i);
+                --i;
+            }
+        }
+    }
+
+    // Re-nest contours: for each contour, find the smallest containing contour
+    for (int d = contours.size() - 1; d >= 0; --d) {
+        auto& contours_d = contours[d];
+        for (int i = 0; i < contours_d.size(); ++i) {
+            const auto& contour = contours_d[i];
+            bool nested = false;
+            for (int t = 0; t < d; ++t) {
+                for (auto& parent : contours[t]) {
+                    if (parent.polygon.contains(contour.polygon.first_point())) {
+                        parent.children.push_back(contour);
+                        nested = true;
+                        break;
+                    }
+                }
+                if (nested) break;
+            }
+            if (nested) {
+                contours_d.erase(contours_d.begin() + i);
+                --i;
+            }
+        }
+    }
+}
+
 bool planPath(slic3r_coverage_planner::PlanPathRequest &req, slic3r_coverage_planner::PlanPathResponse &res) {
 
     Slic3r::Polygon outline_poly;
@@ -405,55 +465,8 @@ bool planPath(slic3r_coverage_planner::PlanPathRequest &req, slic3r_coverage_pla
             }
         }
 
-        // nest loops: holes first
-        for (int d = 0; d <= loop_number; ++d) {
-            PerimeterGeneratorLoops &holes_d = holes[d];
-
-            // loop through all holes having depth == d
-            for (int i = 0; i < (int) holes_d.size(); ++i) {
-                const PerimeterGeneratorLoop &loop = holes_d[i];
-
-                // find the hole loop that contains this one, if any
-                for (int t = d + 1; t <= loop_number; ++t) {
-                    for (int j = 0; j < (int) holes[t].size(); ++j) {
-                        PerimeterGeneratorLoop &candidate_parent = holes[t][j];
-                        if (candidate_parent.polygon.contains(loop.polygon.first_point())) {
-                            candidate_parent.children.push_back(loop);
-                            holes_d.erase(holes_d.begin() + i);
-                            --i;
-                            goto NEXT_LOOP;
-                        }
-                    }
-                }
-
-                NEXT_LOOP:;
-            }
-        }
-
-        // nest contour loops
-        for (int d = loop_number; d >= 1; --d) {
-            PerimeterGeneratorLoops &contours_d = contours[d];
-
-            // loop through all contours having depth == d
-            for (int i = 0; i < (int) contours_d.size(); ++i) {
-                const PerimeterGeneratorLoop &loop = contours_d[i];
-
-                // find the contour loop that contains it
-                for (int t = d - 1; t >= 0; --t) {
-                    for (size_t j = 0; j < contours[t].size(); ++j) {
-                        PerimeterGeneratorLoop &candidate_parent = contours[t][j];
-                        if (candidate_parent.polygon.contains(loop.polygon.first_point())) {
-                            candidate_parent.children.push_back(loop);
-                            contours_d.erase(contours_d.begin() + i);
-                            --i;
-                            goto NEXT_CONTOUR;
-                        }
-                    }
-                }
-
-                NEXT_CONTOUR:;
-            }
-        }
+        // After generating contours and holes, optimize nesting
+        optimizePerimeterNesting(contours, holes);
 
         traverse_from_right(contours[0], area_outlines);
         for (auto &hole: holes) {
